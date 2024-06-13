@@ -1,11 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { gapi } from 'gapi-script';
 import { GoogleSheetInfo } from '../google-sheet-info';
-import AdminChart from '../AdminChart';
+import Chart from 'chart.js/auto';
+
 export default function GSheet() {
     const [data, setData] = useState([]);
     const [search, setSearch] = useState('');
     const [filteredData, setFilteredData] = useState([]);
+    const [departmentCounts, setDepartmentCounts] = useState({});
+    const chartRef = useRef(null);
+    const pieChartRef = useRef(null);
 
     useEffect(() => {
         const initClient = () => {
@@ -32,8 +36,19 @@ export default function GSheet() {
                 spreadsheetId: GoogleSheetInfo.spreadsheetId,
                 range: 'Data1!A:F',
             });
-            setData(response.result.values || []);
-            setFilteredData(response.result.values || []);
+            const data = response.result.values || [];
+            setData(data);
+            setFilteredData(data);
+
+            // Calculate department counts
+            const counts = {};
+            data.forEach((row) => {
+                const department = row[4]; // Assuming department is in the 5th column
+                if (department) {
+                    counts[department] = counts[department] ? counts[department] + 1 : 1;
+                }
+            });
+            setDepartmentCounts(counts);
         } catch (error) {
             console.error('Error fetching data from spreadsheet:', error);
         }
@@ -56,16 +71,16 @@ export default function GSheet() {
 
     const handleDelete = async (index) => {
         try {
-            // Lấy ra ID của hàng dữ liệu cần xoá
-            const rowIdToDelete = filteredData[index][3]; // Giả sử ID hàng dữ liệu được lưu ở cột thứ 7 (index 6)
+            // Get the ID of the data row to delete
+            const rowIdToDelete = filteredData[index][3]; // Assuming the ID is stored in column 7 (index 6)
 
-            // Nếu không có ID, có thể xảy ra lỗi hoặc dữ liệu không được cập nhật đúng cách
+            // If no ID found, handle error or data might not update correctly
             if (!rowIdToDelete) {
-                console.error('Không thể xác định ID của hàng dữ liệu');
+                console.error('Unable to determine ID of data row');
                 return;
             }
 
-            // Xoá hàng dữ liệu từ Google Sheets bằng cách sử dụng ID
+            // Delete data row from Google Sheets using ID
             await gapi.client.sheets.spreadsheets.batchUpdate({
                 spreadsheetId: GoogleSheetInfo.spreadsheetId,
                 resource: {
@@ -73,10 +88,10 @@ export default function GSheet() {
                         {
                             deleteDimension: {
                                 range: {
-                                    sheetId: GoogleSheetInfo.sheetId, // ID của sheet chứa dữ liệu
+                                    sheetId: GoogleSheetInfo.sheetId, // Sheet ID containing data
                                     dimension: 'ROWS',
-                                    startIndex: index, // Bắt đầu từ hàng thứ index
-                                    endIndex: index + 1, // Kết thúc ở hàng sau đó
+                                    startIndex: index, // Starting from index row
+                                    endIndex: index + 1, // Ending at next row
                                 },
                             },
                         },
@@ -84,7 +99,7 @@ export default function GSheet() {
                 },
             });
 
-            // Xoá hàng dữ liệu trong dữ liệu state của ứng dụng
+            // Delete data row from app's state data
             const updatedData = [...filteredData];
             updatedData.splice(index, 1);
             setFilteredData(updatedData);
@@ -93,16 +108,100 @@ export default function GSheet() {
         }
     };
 
-    const courseCounts = filteredData.reduce((acc, row) => {
-        const course = row[4];
-        if (course) {
-            if (!acc[course]) {
-                acc[course] = 0;
+    useEffect(() => {
+        // Ensure bar chart canvas element exists
+        const ctx = document.getElementById('departmentChart');
+        if (ctx) {
+            // Destroy existing bar chart if it exists
+            if (chartRef.current) {
+                chartRef.current.destroy();
             }
-            acc[course]++;
+
+            // Initialize new bar chart instance
+            chartRef.current = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(departmentCounts),
+                    datasets: [
+                        {
+                            label: 'Number of Registrations',
+                            data: Object.values(departmentCounts),
+                            backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1,
+                        },
+                    ],
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            precision: 0,
+                        },
+                    },
+                },
+            });
         }
-        return acc;
-    }, {});
+    }, [departmentCounts]);
+
+    useEffect(() => {
+        // Ensure pie chart canvas element exists
+        const ctxPie = document.getElementById('departmentPieChart');
+        if (ctxPie) {
+            // Destroy existing pie chart if it exists
+            if (pieChartRef.current) {
+                pieChartRef.current.destroy();
+            }
+
+            // Initialize new pie chart instance
+            pieChartRef.current = new Chart(ctxPie, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(departmentCounts),
+                    datasets: [
+                        {
+                            label: 'Number of Registrations',
+                            data: Object.values(departmentCounts),
+                            backgroundColor: [
+                                'rgba(255, 99, 132, 0.5)',
+                                'rgba(54, 162, 235, 0.5)',
+                                'rgba(255, 206, 86, 0.5)',
+                                'rgba(75, 192, 192, 0.5)',
+                                'rgba(153, 102, 255, 0.5)',
+                                'rgba(255, 159, 64, 0.5)',
+                                'rgba(255, 99, 132, 0.5)',
+                            ],
+                            borderColor: [
+                                'rgba(255, 99, 132, 1)',
+                                'rgba(54, 162, 235, 1)',
+                                'rgba(255, 206, 86, 1)',
+                                'rgba(75, 192, 192, 1)',
+                                'rgba(153, 102, 255, 1)',
+                                'rgba(255, 159, 64, 1)',
+                                'rgba(255, 99, 132, 1)',
+                            ],
+                            borderWidth: 1,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function (tooltipItem) {
+                                    return `${tooltipItem.label}: ${tooltipItem.raw.toFixed(2)}%`;
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+        }
+    }, [departmentCounts]);
 
     return (
         <div>
@@ -112,7 +211,7 @@ export default function GSheet() {
                     <div className="col-md-8">
                         <input
                             type="text"
-                            placeholder="Search by Tên, Email, SĐT và Loại"
+                            placeholder="Search by Name, Email, Phone, Type, or Department"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             className="form-control"
@@ -122,17 +221,17 @@ export default function GSheet() {
                 </div>
                 <div className="row justify-content-center">
                     <div className="col-md-10">
-                        <h1 className="text-center mb-4 text-uppercase">Danh sách đăng ký học</h1>
+                        <h1 className="text-center mb-4 text-uppercase">Registration List</h1>
                         <div className="table-responsive">
                             <table className="table table-bordered">
                                 <thead className="thead-light">
                                     <tr>
-                                        <th scope="col">Tên</th>
+                                        <th scope="col">Name</th>
                                         <th scope="col">Email</th>
-                                        <th scope="col">Điện thoại</th>
-                                        <th scope="col">Loại</th>
-                                        <th scope="col">Ngành</th>
-                                        <th scope="col">Hành động</th>
+                                        <th scope="col">Phone</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Department</th>
+                                        <th scope="col">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -153,12 +252,15 @@ export default function GSheet() {
                                 </tbody>
                             </table>
                         </div>
+                        <div className="row justify-content-center mt-4">
+                            <div className="col-md-6">
+                                <canvas id="departmentPieChart"></canvas>
+                            </div>
+                            <div className="col-md-6">
+                                <canvas id="departmentChart"></canvas>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div>
-                <div>
-                    <AdminChart data={courseCounts} />
                 </div>
             </div>
         </div>
